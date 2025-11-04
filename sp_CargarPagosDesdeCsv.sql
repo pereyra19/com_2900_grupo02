@@ -19,11 +19,12 @@ END;
 GO
 
 CREATE OR ALTER PROCEDURE dbo.sp_CargarPagosDesdeCsv
-    @FilePath NVARCHAR(500) 
+    @FilePath NVARCHAR(500)   -- ✅ Nuevo parámetro: ruta del archivo CSV
 AS
 BEGIN
     SET NOCOUNT ON;
 
+    -- Elimina staging previo si existía
     IF OBJECT_ID('tempdb..#stg_pagos') IS NOT NULL DROP TABLE #stg_pagos;
 
     CREATE TABLE #stg_pagos
@@ -34,6 +35,7 @@ BEGIN
         ValorTxt  VARCHAR(100) NULL
     );
 
+    -- BULK INSERT directo usando parámetro
     DECLARE @sql NVARCHAR(MAX);
     SET @sql = N'
         BULK INSERT #stg_pagos
