@@ -8,7 +8,6 @@ BEGIN
     IF OBJECT_ID('tempdb..#raw')   IS NOT NULL DROP TABLE #raw;
     IF OBJECT_ID('tempdb..#dedup') IS NOT NULL DROP TABLE #dedup;
 
-    -- RAW: 4 columnas (B..E) sin encabezado
     CREATE TABLE #raw (
         F1 NVARCHAR(4000),  -- tipoServicio
         F2 NVARCHAR(4000),  -- nombre
@@ -16,7 +15,6 @@ BEGIN
         F4 NVARCHAR(4000)   -- nombre consorcio
     );
 
-    -- === Dinámico mínimo: SOLO lectura de Excel ===
     DECLARE 
         @prov  NVARCHAR(200)  = N'Microsoft.ACE.OLEDB.16.0',
         @ext   NVARCHAR(4000) = N'Excel 12.0 Xml;HDR=NO;IMEX=1;Mode=Read;ReadOnly=1;Database=' + REPLACE(@FilePath,'''',''''''),
@@ -28,9 +26,7 @@ INSERT INTO #raw(F1,F2,F3,F4)
 SELECT F1,F2,F3,F4
 FROM OPENROWSET(''' + @prov + ''',''' + @ext + ''',''' + @qry + ''');';
     EXEC sys.sp_executesql @sql;
-    -- === Fin dinámico ===
 
-    -- Datos limpios y deduplicados por (idConsorcio, nombre, tipoServicio)
     CREATE TABLE #dedup
     (
         idConsorcio     INT          NOT NULL,
@@ -71,7 +67,6 @@ FROM OPENROWSET(''' + @prov + ''',''' + @ext + ''',''' + @qry + ''');';
     ) x
     WHERE rn = 1;
 
-    -- UPDATE por clave (idConsorcio, nombre, tipoServicio)
     UPDATE ps
        SET ps.cuenta = d.cuenta
     FROM dbo.PrestadorServicio ps
@@ -80,7 +75,6 @@ FROM OPENROWSET(''' + @prov + ''',''' + @ext + ''',''' + @qry + ''');';
       AND d.nombre       = ps.nombre
       AND d.tipoServicio = ps.tipoServicio;
 
-    -- INSERT de faltantes
     INSERT INTO dbo.PrestadorServicio (idConsorcio, nombre, tipoServicio, cuenta)
     SELECT d.idConsorcio, d.nombre, d.tipoServicio, d.cuenta
     FROM #dedup d
