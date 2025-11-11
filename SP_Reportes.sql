@@ -1,168 +1,9 @@
-﻿/*Reporte 1 
-Se desea analizar el flujo de caja en forma semanal. Debe presentar la recaudación por 
-pagos ordinarios y extraordinarios de cada semana, el promedio en el periodo, y el 
-acumulado progresivo. */
-
------------------------------------------------------------------------------------
--- RPT-01: Flujo de caja semanal (total recaudado)
---   Ventana por fecha de pago y filtro opcional por consorcio.
---   NO clasifica ordinario/extraordinario (no se inventan categorías).
------------------------------------------------------------------------------------
-CREATE OR ALTER PROCEDURE dbo.rpt_FlujoCajaSemanal
-    @FechaDesde   date,
-    @FechaHasta   date,
-    @IdConsorcio  int = NULL     -- NULL = todos los consorcios
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    -- Tomamos lunes como inicio de semana (base Monday 2001-01-01)
-    DECLARE @BaseMonday date = '20010101';
-
-    ;WITH pagos AS (
-        SELECT
-            p.fechaPago,
-            p.monto,
-            uf.idConsorcio
-        FROM dbo.Pago p
-        JOIN dbo.UnidadFuncional uf
-          ON uf.idUF = p.nroUnidadFuncional
-        WHERE p.fechaPago >= @FechaDesde
-          AND p.fechaPago <  DATEADD(DAY, 1, @FechaHasta)
-          AND (@IdConsorcio IS NULL OR uf.idConsorcio = @IdConsorcio)
-    ),
-    semanas AS (
-        SELECT
-            semana_ini = DATEADD(WEEK, DATEDIFF(WEEK, @BaseMonday, p.fechaPago), @BaseMonday),
-            p.monto
-        FROM pagos p
-    ),
-    totales AS (
-        SELECT
-            semana_ini,
-            total = SUM(monto)
-        FROM semanas
-        GROUP BY semana_ini
-    )
-    SELECT
-        semana_ini,
-        semana_fin       = DATEADD(DAY, 6, semana_ini),
-        total,
-        promedio_periodo = AVG(total) OVER (),  -- promedio de todas las semanas del rango
-        acumulado        = SUM(total) OVER (ORDER BY semana_ini
-                                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
-    FROM totales
-    ORDER BY semana_ini;
-END
-GO
-
-----------------------------------------------------------------------------------------------
-/*                                           Reporte 2 
-Presente el total de recaudación por mes y departamento en formato de tabla cruzada.  */ 
-------------------------------------------------------------------------------------------------
-
-CREATE OR ALTER PROCEDURE dbo.rpt_RecaudacionMesDepartamento
-    @FechaDesde   date,
-    @FechaHasta   date,
-    @IdConsorcio  int  = NULL,  -- NULL = todos
-    @AsXml        bit  = 0      -- 1 = devuelve XML
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    IF OBJECT_ID('tempdb..#base') IS NOT NULL DROP TABLE #base;
-
-    -- Base: pagos en el rango, con mes contable y depto
-    SELECT
-        mes          = DATEFROMPARTS(YEAR(p.fechaPago), MONTH(p.fechaPago), 1),
-        departamento = UPPER(LTRIM(RTRIM(COALESCE(uf.departamento,'(SIN)')))),
-        monto        = p.monto
-    INTO #base
-    FROM dbo.Pago p
-    JOIN dbo.UnidadFuncional uf
-      ON uf.idUF = p.nroUnidadFuncional
-    WHERE p.fechaPago >= @FechaDesde
-      AND p.fechaPago <  DATEADD(DAY, 1, @FechaHasta)
-      AND (@IdConsorcio IS NULL OR uf.idConsorcio = @IdConsorcio);
-
-    -- Si no hay datos, responder vacío (o XML vacío)
-    IF NOT EXISTS (SELECT 1 FROM #base)
-    BEGIN
-        IF @AsXml = 1
-            SELECT CAST('<reporte/>' AS xml) AS xml_out;
-        ELSE
-            SELECT CAST(NULL AS date) AS mes WHERE 1=0;
-        RETURN;
-    END
-
-    -- Columnas del PIVOT (departamentos encontrados)
-    DECLARE @cols nvarchar(max) =
-      STUFF((
-        SELECT DISTINCT ',' + QUOTENAME(departamento)
-        FROM #base
-        FOR XML PATH(''), TYPE).value('.','nvarchar(max)')
-      ,1,1,'');
-
-    -- PIVOT dinámico. Si @AsXml = 1, lo devolvemos en XML.
-    DECLARE @sql nvarchar(max) =
-       N'SELECT mes,' + @cols + N'
-         FROM (SELECT mes, departamento, monto FROM #base) d
-         PIVOT (SUM(monto) FOR departamento IN (' + @cols + N')) p ' +
-         CASE WHEN @AsXml=1
-              THEN N'FOR XML PATH(''fila''), ROOT(''reporte''), TYPE;'
-              ELSE N'ORDER BY mes;'
-         END;
-
-    EXEC sys.sp_executesql @sql;
-END
-GO
-
--- Todos los consorcios, año 2025, salida tabular
-EXEC dbo.rpt_RecaudacionMesDepartamento
-     @FechaDesde='2025-01-01', @FechaHasta='2025-12-31',
-     @IdConsorcio=NULL, @AsXml=0;
-
--- Sólo un consorcio (por id), en XML
-EXEC dbo.rpt_RecaudacionMesDepartamento
-     @FechaDesde='2025-01-01', @FechaHasta='2025-12-31',
-     @IdConsorcio=1, @AsXml=1;
-
--------------------------------------------------------------------------------------
-/*                                      Reporte 3 
-Presente un cuadro cruzado con la recaudación total desagregada según su procedencia  
-(ordinario, extraordinario, etc.) según el periodo.  */
--------------------------------------------------------------------------------------
-
-
--------------------------------------------------------------------------------------
-/*                                      Reporte 4 
-Obtenga los 5 (cinco) meses de mayores gastos y los 5 (cinco) de mayores ingresos. */
--------------------------------------------------------------------------------------
-
-
-
--------------------------------------------------------------------------------------
-/*                                      Reporte 5 
-Obtenga los 3 (tres) propietarios con mayor morosidad. Presente información de contacto y 
-DNI de los propietarios para que la administración los pueda contactar o remitir el trámite al 
-estudio jurídico. */
--------------------------------------------------------------------------------------
-
-
-
--------------------------------------------------------------------------------------
-/*                                        Reporte 6 
-Muestre las fechas de pagos de expensas ordinarias de cada UF y la cantidad de días que 
-pasan entre un pago y el siguiente, para el conjunto examinado. */
--------------------------------------------------------------------------------------
-
-
-
+﻿
 USE Com3900G02;
 GO
-/* ============================================================
-   R1 — Flujo de caja semanal: ordinario vs extraordinario (TABULAR)
-   ============================================================ */
+/*
+   R1 — Flujo de caja semanal: ordinario vs extraordinario
+*/
 CREATE OR ALTER PROCEDURE dbo.rpt_R1_FlujoCajaSemanal
     @FechaDesde  date,
     @FechaHasta  date,
@@ -215,9 +56,9 @@ BEGIN
 END
 GO
 
-/* ============================================================
+/* 
    R2 — Recaudación por MES y DEPARTAMENTO (PIVOT DINÁMICO → XML)
-   ============================================================ */
+*/
 CREATE OR ALTER PROCEDURE dbo.rpt_R2_RecaudacionMesDepto_XML
     @FechaDesde  date,
     @FechaHasta  date,
@@ -283,10 +124,10 @@ FOR XML PATH(''row''), ROOT(''RecaudacionMesDepto''), TYPE;';
 END
 GO
 
-/* ============================================================
+/*
    R3 — Cuadro cruzado de recaudación por procedencia (TABULAR)
          (periodo = mes; columnas = Ordinario/Extraordinario)
-   ============================================================ */
+*/
 CREATE OR ALTER PROCEDURE dbo.rpt_R3_RecaudacionPorProcedencia
     @FechaDesde  date,
     @FechaHasta  date,
@@ -328,9 +169,9 @@ BEGIN
 END
 GO
 
-/* ============================================================
+/*
    R4 — Top 5 meses de MAYORES GASTOS y de MAYORES INGRESOS (TABULAR)
-   ============================================================ */
+*/
 CREATE OR ALTER PROCEDURE dbo.rpt_R4_Top5Meses_GastosIngresos
     @FechaDesde  date,
     @FechaHasta  date,
@@ -371,10 +212,10 @@ BEGIN
 END
 GO
 
-/* ============================================================
+/* 
    R5 — Top N propietarios con mayor morosidad (TABULAR)
          morosidad = Expensas (<= mes de corte) − Pagos (<= corte)
-   ============================================================ */
+*/
 CREATE OR ALTER PROCEDURE dbo.rpt_R5_TopMorosos
     @FechaCorte  date,
     @IdConsorcio int = NULL,
@@ -433,9 +274,9 @@ BEGIN
 END
 GO
 
-/* ============================================================
+/* 
    R6 — Fechas de pagos (ordinarios) por UF + días hasta el siguiente (XML)
-   ============================================================ */
+*/
 CREATE OR ALTER PROCEDURE dbo.rpt_R6_PagosOrdinarios_GAP_XML
     @FechaDesde  date,
     @FechaHasta  date,
