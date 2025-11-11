@@ -3,32 +3,37 @@ GO
 
 IF DB_ID(N'Com3900G02') IS NOT NULL
 BEGIN
-    -- Corta TODAS las conexiones a la base y revierte lo que estén haciendo
+    -- Corta TODAS las conexiones a la base y hace rollback de lo que estén haciendo y elimina la bdd
     ALTER DATABASE Com3900G02 SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
     DROP DATABASE Com3900G02;
 END
 GO
 
+-----------------------------------------------------------------------------------------
+USE master;
+GO
+EXEC sp_configure 'show advanced options', 1;   --config para el xlsx
+RECONFIGURE;  
+GO  
+EXEC sp_configure 'Ad Hoc Distributed Queries', 1;   --config para el xlsx
+RECONFIGURE;  
+GO
+EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.16.0', N'AllowInProcess', 1  --config para el xlsx
+GO
+-------------------------------------------------------------------------------------------
+
+
 CREATE DATABASE Com3900G02;
 GO
 
+USE Com3900G02;
+
+--creamos el esquema 
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'dbo')
     EXEC(N'CREATE SCHEMA dbo');
 GO
 
 
-USE master;
-GO
-EXEC sp_configure 'show advanced options', 1;  
-RECONFIGURE;  
-GO  
-EXEC sp_configure 'Ad Hoc Distributed Queries', 1;  
-RECONFIGURE;  
-GO
-EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.16.0', N'AllowInProcess', 1  
-GO
-
-USE Com3900G02;
 
 CREATE TABLE dbo.Consorcio (
     id              INT IDENTITY(1,1) NOT NULL,
@@ -40,7 +45,7 @@ CREATE TABLE dbo.Consorcio (
 );
 GO
 
-CREATE TABLE dbo.Persona (
+CREATE TABLE dbo.persona (
     id        INT IDENTITY(1,1) NOT NULL,
     nombre    VARCHAR(100)      NOT NULL,
     apellido  VARCHAR(100)      NOT NULL,
@@ -101,14 +106,14 @@ GO
 
 CREATE TABLE dbo.Pago (
     id                 INT IDENTITY(1,1) NOT NULL,
-    nroUnidadFuncional INT             NULL,
+    nroUnidadFuncional INT             NOT NULL,
     fechaPago          DATE            NOT NULL,
     cbu                VARCHAR(30)    NOT NULL,
     monto              DECIMAL(10,2)   NOT NULL,
     idDePago           INT NOT NULL,
     CONSTRAINT PK_Pago PRIMARY KEY (id),
-    CONSTRAINT FK_Pago_UnidadFuncional FOREIGN KEY (nroUnidadFuncional)
-        REFERENCES dbo.UnidadFuncional (idUF)
+    CONSTRAINT UQ_Pago_idDePago UNIQUE (idDePago),
+    CONSTRAINT FK_Pago_UnidadFuncional FOREIGN KEY (nroUnidadFuncional) REFERENCES dbo.UnidadFuncional (idUF)
 );
 GO
 
@@ -116,17 +121,24 @@ GO
 CREATE TABLE dbo.Expensa (
     id                 INT IDENTITY(1,1) NOT NULL,
     idUF               INT             NOT NULL,
-    idPago             INT             NULL,
     periodo            DATE           NOT NULL,
     montoTotal         DECIMAL(10,2)   NOT NULL CHECK(montoTotal>0),
     fechaEnvio         DATE            NULL,
     modoEnvio          VARCHAR(50)    NULL,
     CONSTRAINT PK_Expensa PRIMARY KEY (id),
     CONSTRAINT FK_Expensa_UF   FOREIGN KEY (idUF)   REFERENCES dbo.UnidadFuncional (idUF),
-    CONSTRAINT FK_Expensa_Pago FOREIGN KEY (idPago) REFERENCES dbo.Pago (id),
     CONSTRAINT UQ_Expensa_UF_Periodo UNIQUE (idUF, periodo)     -- 1 expensa por UF/mes
 );
 GO
+
+CREATE TABLE dbo.PagoExpensa (
+  idPago    INT NOT NULL,
+  idExpensa INT NOT NULL,
+  CONSTRAINT PK_PagoExpensa PRIMARY KEY (idPago, idExpensa),
+  CONSTRAINT FK_PagoExpensa_Pago    FOREIGN KEY (idPago)    REFERENCES dbo.Pago(id),
+  CONSTRAINT FK_PagoExpensa_Expensa FOREIGN KEY (idExpensa) REFERENCES dbo.Expensa(id)
+);
+
 
 CREATE TABLE dbo.DetalleExpensa (
     id                  INT IDENTITY(1,1) NOT NULL,
@@ -150,7 +162,6 @@ CREATE TABLE dbo.FacturaExpensa (
     fechaVencimiento     DATE            NOT NULL,
     nroVencimiento       INT             NOT NULL CHECK (nroVencimiento > 0),
     interesPorMora       DECIMAL(10,2)   DEFAULT 0,
-    estado               VARCHAR(50)    DEFAULT 'PENDIENTE',
     totalGastoOrdinario  DECIMAL(10,2)   DEFAULT 0,
     totalGastoExtraordinario DECIMAL(10,2) DEFAULT 0,
     CONSTRAINT PK_FacturaExpensa PRIMARY KEY (numeroFactura),
@@ -172,3 +183,49 @@ CREATE TABLE dbo.EstadoFinanciero (
         REFERENCES dbo.Expensa (id)
 );
 GO
+
+
+----------------------------------------------------------------------------------------
+--                                        INDICES
+-----------------------------------------------------------------------------------------   
+
+-- Pago: por UF y fecha
+CREATE NONCLUSTERED INDEX IX_Pago_UF_Fecha
+ON dbo.Pago (nroUnidadFuncional, fechaPago)
+INCLUDE (monto, idDePago, cbu);
+GO
+
+-- PagoExpensa: enlaces pago<->expensa
+CREATE NONCLUSTERED INDEX IX_PagoExpensa_Pago
+ON dbo.PagoExpensa (idPago, idExpensa);
+GO
+
+CREATE NONCLUSTERED INDEX IX_PagoExpensa_Expensa
+ON dbo.PagoExpensa (idExpensa, idPago);
+GO
+
+-- DetalleExpensa: por expensa y categoría
+CREATE NONCLUSTERED INDEX IX_DetalleExpensa_Expensa_Categoria
+ON dbo.DetalleExpensa (idExpensa, categoria)
+INCLUDE (tipo, importe, idPrestadorServicio);
+GO
+
+-- DetalleExpensa: por prestadorServicio
+CREATE NONCLUSTERED INDEX IX_DetalleExpensa_Prestador
+ON dbo.DetalleExpensa (idPrestadorServicio)
+INCLUDE (idExpensa, importe, categoria, tipo);
+GO
+
+-- UnidadFuncional: por consorcio
+CREATE NONCLUSTERED INDEX IX_UF_Consorcio
+ON dbo.UnidadFuncional (idConsorcio)
+INCLUDE (idUF, numeroUnidad, departamento, coeficiente);
+GO
+
+-- PrestadorServicio: por consorcio y tipo
+CREATE NONCLUSTERED INDEX IX_Prestador_Consorcio_Tipo
+ON dbo.PrestadorServicio (idConsorcio, tipoServicio)
+INCLUDE (id, nombre, cuenta);
+GO
+
+
