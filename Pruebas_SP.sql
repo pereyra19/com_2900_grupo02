@@ -9,14 +9,13 @@ y reinicias
 USE Com3900G02;
 GO
 
--- IMPORTACION 
+------------------------------------ IMPORTACION ------------------------------------------------
 
 --config para trabjar con xlsx
 EXEC sys.sp_configure 'show advanced options', 1; RECONFIGURE;
 EXEC sys.sp_configure 'Ad Hoc Distributed Queries', 1; RECONFIGURE;
 EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.16.0',N'AllowInProcess',1;
 EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.16.0',N'DynamicParameters',1;
-
 
 -- 1) CONSORCIOS (XLSX)  - hoja: Consorcios$
 EXEC dbo.sp_ImportarConsorcios
@@ -63,32 +62,25 @@ EXEC dbo.sp_Pagos_ImportarCSV
 SELECT COUNT(*) AS pagos FROM dbo.Pago;
 GO
 
+---------------------------------------------REPORTES-------------------------------------------------------------
 
-
--- REPORTE #01 
+-- #01 
   EXEC dbo.rpt_R1_FlujoCajaSemanal '2025-01-01','2025-12-31', NULL;
 
--- REPORTE #02 
+-- #02 
 EXEC dbo.rpt_R2_RecaudacionMesDepto_XML '2025-01-01','2025-12-31', NULL;
 
-
--- REPORTE #03
+-- #03
 EXEC dbo.rpt_R3_RecaudacionPorProcedencia '2025-01-01','2025-12-31', NULL;
 
-
--- REPORTE #04 
+-- #04 
 EXEC dbo.rpt_R4_Top5Meses_GastosIngresos '2025-01-01','2025-12-31', NULL;
 
--- REPORTE #05
+-- #05
 EXEC dbo.rpt_R5_TopMorosos '2025-12-31', NULL, 3;
 
--- REPORTE #06
-EXEC dbo.rpt_R6_PagosOrdinarios_GAP_XML '2025-01-01','2025-12-31', NULL;
-
-
-
-
-
+-- #06
+EXEC dbo.rpt_R6_PagosOrdinarios_XML '2025-01-01','2025-12-31', NULL;
 
 
 

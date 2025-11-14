@@ -9,20 +9,7 @@ BEGIN
 END
 GO
 
------------------------------------------------------------------------------------------
-USE master;
-GO
-EXEC sp_configure 'show advanced options', 1;   --config para el xlsx
-RECONFIGURE;  
-GO  
-EXEC sp_configure 'Ad Hoc Distributed Queries', 1;   --config para el xlsx
-RECONFIGURE;  
-GO
-EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.16.0', N'AllowInProcess', 1  --config para el xlsx
-GO
--------------------------------------------------------------------------------------------
-
-
+-- creamos la base de datos 
 CREATE DATABASE Com3900G02;
 GO
 
@@ -34,7 +21,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'dbo')
 GO
 
 
-
+--creacion de tablas
 CREATE TABLE dbo.Consorcio (
     id              INT IDENTITY(1,1) NOT NULL,
     nombre          VARCHAR(100)    NOT NULL,
@@ -106,7 +93,7 @@ GO
 
 CREATE TABLE dbo.Pago (
     id                 INT IDENTITY(1,1) NOT NULL,
-    nroUnidadFuncional INT             NOT NULL,
+    nroUnidadFuncional INT             NULL,
     fechaPago          DATE            NOT NULL,
     cbu                VARCHAR(30)    NOT NULL,
     monto              DECIMAL(10,2)   NOT NULL,
@@ -184,48 +171,5 @@ CREATE TABLE dbo.EstadoFinanciero (
 );
 GO
 
-
-----------------------------------------------------------------------------------------
---                                        INDICES
------------------------------------------------------------------------------------------   
-
--- Pago: por UF y fecha
-CREATE NONCLUSTERED INDEX IX_Pago_UF_Fecha
-ON dbo.Pago (nroUnidadFuncional, fechaPago)
-INCLUDE (monto, idDePago, cbu);
-GO
-
--- PagoExpensa: enlaces pago<->expensa
-CREATE NONCLUSTERED INDEX IX_PagoExpensa_Pago
-ON dbo.PagoExpensa (idPago, idExpensa);
-GO
-
-CREATE NONCLUSTERED INDEX IX_PagoExpensa_Expensa
-ON dbo.PagoExpensa (idExpensa, idPago);
-GO
-
--- DetalleExpensa: por expensa y categoría
-CREATE NONCLUSTERED INDEX IX_DetalleExpensa_Expensa_Categoria
-ON dbo.DetalleExpensa (idExpensa, categoria)
-INCLUDE (tipo, importe, idPrestadorServicio);
-GO
-
--- DetalleExpensa: por prestadorServicio
-CREATE NONCLUSTERED INDEX IX_DetalleExpensa_Prestador
-ON dbo.DetalleExpensa (idPrestadorServicio)
-INCLUDE (idExpensa, importe, categoria, tipo);
-GO
-
--- UnidadFuncional: por consorcio
-CREATE NONCLUSTERED INDEX IX_UF_Consorcio
-ON dbo.UnidadFuncional (idConsorcio)
-INCLUDE (idUF, numeroUnidad, departamento, coeficiente);
-GO
-
--- PrestadorServicio: por consorcio y tipo
-CREATE NONCLUSTERED INDEX IX_Prestador_Consorcio_Tipo
-ON dbo.PrestadorServicio (idConsorcio, tipoServicio)
-INCLUDE (id, nombre, cuenta);
-GO
 
 
