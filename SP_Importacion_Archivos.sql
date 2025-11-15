@@ -34,9 +34,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    --------------------------------------------------------------------
-    -- 1) Leer el JSON del archivo a una variable
-    --------------------------------------------------------------------
     DECLARE @jsonTexto NVARCHAR(MAX);
     DECLARE @sqlLeerArchivo NVARCHAR(MAX) =
         N'SELECT @salida = CONVERT(NVARCHAR(MAX), BulkColumn)
@@ -46,9 +43,7 @@ BEGIN
                        N'@salida NVARCHAR(MAX) OUTPUT',
                        @salida = @jsonTexto OUTPUT;
 
-    --------------------------------------------------------------------
-    -- 2) Tabla temporal con totales por consorcio y mes (#TotalesConsorcio)
-    --------------------------------------------------------------------
+   
     IF OBJECT_ID('tempdb..#TotalesConsorcio') IS NOT NULL DROP TABLE #TotalesConsorcio;
 
     CREATE TABLE #TotalesConsorcio(
@@ -97,9 +92,7 @@ BEGIN
     JOIN dbo.Consorcio c
       ON c.nombre = j.NombreConsorcio;
 
-    --------------------------------------------------------------------
-    -- 3) Calcular cuánto paga cada UF (#TotalesUF) según m2_UF + accesorios
-    --------------------------------------------------------------------
+   
     IF OBJECT_ID('tempdb..#TotalesUF') IS NOT NULL DROP TABLE #TotalesUF;
 
     CREATE TABLE #TotalesUF(
@@ -150,9 +143,7 @@ BEGIN
     JOIN CoeficienteFinal cf
       ON cf.idUF = uf.idUF;
 
-    --------------------------------------------------------------------
-    -- 4) Detalle por concepto para cada UF (#DetalleUF)
-    --------------------------------------------------------------------
+ 
     IF OBJECT_ID('tempdb..#DetalleUF') IS NOT NULL DROP TABLE #DetalleUF;
 
     CREATE TABLE #DetalleUF(
@@ -209,9 +200,9 @@ BEGIN
     ) AS x(Concepto, Importe)
     WHERE x.Importe > 0;
 
-    --------------------------------------------------------------------
-    -- 5) Insertar Expensas (una por UF/periodo, sin duplicar)
-    --------------------------------------------------------------------
+   
+    -- Insertar Expensas (una por UF/periodo, sin duplicar)
+    
     DECLARE @NuevasExpensas TABLE(idExpensa INT, idUF INT, periodo DATE);
 
     INSERT INTO dbo.Expensa (idUF, periodo, montoTotal)
@@ -226,10 +217,10 @@ BEGIN
           AND e.periodo = t.periodo
     );
 
-    --------------------------------------------------------------------
-    -- 6) Insertar DetalleExpensa con tipo + categoría
+   
+    -- Insertar DetalleExpensa con tipo + categoría
     --    y matchear con PrestadorServicio usando el mapeo de conceptos
-    --------------------------------------------------------------------
+   
     INSERT INTO dbo.DetalleExpensa
         (idExpensa, idPrestadorServicio, importe, nroFactura, tipo, categoria, nroCuota)
     SELECT 

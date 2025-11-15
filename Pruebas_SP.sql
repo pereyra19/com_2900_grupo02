@@ -17,6 +17,8 @@ EXEC sys.sp_configure 'Ad Hoc Distributed Queries', 1; RECONFIGURE;
 EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.16.0',N'AllowInProcess',1;
 EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.16.0',N'DynamicParameters',1;
 
+
+
 -- 1) CONSORCIOS (XLSX)  - hoja: Consorcios$
 EXEC dbo.sp_ImportarConsorcios
   @FilePath  = N'C:\Users\perey\OneDrive\Escritorio\com3900G02\com_3641_grupo02\archivos\datos varios.xlsx',
@@ -62,29 +64,37 @@ EXEC dbo.sp_Pagos_ImportarCSV
 SELECT COUNT(*) AS pagos FROM dbo.Pago;
 GO
 
+EXEC dbo.sp_Pagos_PendientesParaAsociar;
+GO
+
 ---------------------------------------------REPORTES-------------------------------------------------------------
 
--- #01 
-  EXEC dbo.rpt_R1_FlujoCajaSemanal '2025-01-01','2025-12-31', NULL;
+EXECUTE AS USER = 'ug_admin_general';
+	-- #01 
+	  EXEC dbo.rpt_R1_FlujoCajaSemanal '2025-01-01','2025-12-31', NULL;
 
--- #02 
-EXEC dbo.rpt_R2_RecaudacionMesDepto_XML '2025-01-01','2025-12-31', NULL;
+	-- #02 
+	EXEC dbo.rpt_R2_RecaudacionMesDepto_XML '2025-01-01','2025-12-31', NULL;
 
--- #03
-EXEC dbo.rpt_R3_RecaudacionPorProcedencia '2025-01-01','2025-12-31', NULL;
+	-- #03
+	EXEC dbo.rpt_R3_RecaudacionPorProcedencia '2025-01-01','2025-12-31', NULL;
 
--- #04 
-EXEC dbo.rpt_R4_Top5Meses_GastosIngresos '2025-01-01','2025-12-31', NULL;
+	-- #04 
+	EXEC dbo.rpt_R4_Top5Meses_GastosIngresos '2025-01-01','2025-12-31', NULL;
 
--- #05
-EXEC dbo.rpt_R5_TopMorosos '2025-12-31', NULL, 3;
+	-- #05
+	EXEC dbo.rpt_R5_TopMorosos '2025-12-31', NULL, 3;
 
--- #06
-EXEC dbo.rpt_R6_PagosOrdinarios_XML '2025-01-01','2025-12-31', NULL;
+	-- #06
+	EXEC dbo.rpt_R6_PagosOrdinarios_XML '2025-01-01','2025-12-31', NULL;
+REVERT;
 
 
-
-
+EXECUTE AS USER = 'ug_admin_bancario';
+  -- Reportes
+  EXEC dbo.rpt_R1_FlujoCajaSemanal         @FechaDesde=@FechaDesde, @FechaHasta=@FechaHasta, @IdConsorcio=@IdConsorcio;
+  EXEC dbo.rpt_R2_RecaudacionMesDepto_XML  @FechaDesde=@FechaDesde, @FechaHasta=@FechaHasta, @IdConsorcio=@IdConsorcio;
+REVERT;
 
 
 

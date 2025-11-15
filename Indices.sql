@@ -1,3 +1,5 @@
+USE Com3900G02;
+GO
 
 -- Pago: por UF y fecha
 CREATE NONCLUSTERED INDEX IX_Pago_UF_Fecha
