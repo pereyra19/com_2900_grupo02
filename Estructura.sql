@@ -172,4 +172,8 @@ CREATE TABLE dbo.EstadoFinanciero (
 GO
 
 
-
+CREATE TABLE dbo.Feriados (
+    fecha  DATE        NOT NULL PRIMARY KEY,
+    tipo   NVARCHAR(50)    NULL,
+    nombre NVARCHAR(200)   NULL
+);

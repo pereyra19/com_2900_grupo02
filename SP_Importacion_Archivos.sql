@@ -23,230 +23,234 @@ GO
 
 
 --#01  sp_ImportacionServicios (JSON)
+USE Com3900G02;
+GO
+
 CREATE OR ALTER PROCEDURE dbo.sp_ImportacionServicios
-    @FilePath NVARCHAR(4000),
-    @Year     INT = 2025
+    @RutaArchivo NVARCHAR(4000),
+    @Anio        INT = 2025
 AS
 BEGIN
     SET NOCOUNT ON;
-    SET XACT_ABORT ON;
 
-    BEGIN TRY
-        BEGIN TRAN;
+    --------------------------------------------------------------------
+    -- 1) Leer el JSON del archivo a una variable
+    --------------------------------------------------------------------
+    DECLARE @jsonTexto NVARCHAR(MAX);
+    DECLARE @sqlLeerArchivo NVARCHAR(MAX) =
+        N'SELECT @salida = CONVERT(NVARCHAR(MAX), BulkColumn)
+          FROM OPENROWSET(BULK ' + QUOTENAME(@RutaArchivo,'''') + N', SINGLE_CLOB) AS J;';
 
+    EXEC sp_executesql @sqlLeerArchivo,
+                       N'@salida NVARCHAR(MAX) OUTPUT',
+                       @salida = @jsonTexto OUTPUT;
 
-        DECLARE @json NVARCHAR(MAX);
-        DECLARE @sql  NVARCHAR(MAX) =
-           N'SELECT @out = CONVERT(NVARCHAR(MAX), BulkColumn)
-             FROM OPENROWSET(BULK ' + QUOTENAME(@FilePath,'''') + N', SINGLE_CLOB) AS J;';
-        EXEC sp_executesql @sql, N'@out NVARCHAR(MAX) OUTPUT', @out=@json OUTPUT;
+    --------------------------------------------------------------------
+    -- 2) Tabla temporal con totales por consorcio y mes (#TotalesConsorcio)
+    --------------------------------------------------------------------
+    IF OBJECT_ID('tempdb..#TotalesConsorcio') IS NOT NULL DROP TABLE #TotalesConsorcio;
 
-        IF OBJECT_ID('tempdb..#cm') IS NOT NULL DROP TABLE #cm;
-        CREATE TABLE #cm(
-            consId               INT           NOT NULL,
-            PeriodDate           DATE          NOT NULL,
-            BancariosTotal       DECIMAL(12,2) NULL,
-            LimpiezaTotal        DECIMAL(12,2) NULL,
-            AdministracionTotal  DECIMAL(12,2) NULL,
-            SegurosTotal         DECIMAL(12,2) NULL,
-            GastosGralesTotal    DECIMAL(12,2) NULL,
-            ServPubAguaTotal     DECIMAL(12,2) NULL,
-            ServPubLuzTotal      DECIMAL(12,2) NULL
-        );
+    CREATE TABLE #TotalesConsorcio(
+        idConsorcio        INT,
+        periodo            DATE,
+        totalBancarios     DECIMAL(12,2),
+        totalLimpieza      DECIMAL(12,2),
+        totalAdministracion DECIMAL(12,2),
+        totalSeguros       DECIMAL(12,2),
+        totalGastosGrales  DECIMAL(12,2),
+        totalAgua          DECIMAL(12,2),
+        totalLuz           DECIMAL(12,2)
+    );
 
-        INSERT INTO #cm(consId, PeriodDate, BancariosTotal, LimpiezaTotal, AdministracionTotal,
-                        SegurosTotal, GastosGralesTotal, ServPubAguaTotal, ServPubLuzTotal)
-        SELECT 
-            c.id AS consId,
-            DATEFROMPARTS(@Year,
-                CASE LOWER(LTRIM(RTRIM(j.Mes)))
-                    WHEN 'enero' THEN 1  WHEN 'febrero' THEN 2  WHEN 'marzo' THEN 3
-                    WHEN 'abril' THEN 4  WHEN 'mayo'    THEN 5  WHEN 'junio' THEN 6
-                    WHEN 'julio' THEN 7  WHEN 'agosto'  THEN 8  WHEN 'septiembre' THEN 9
-                    WHEN 'octubre' THEN 10 WHEN 'noviembre' THEN 11 WHEN 'diciembre' THEN 12
-                END, 1
-            ),
-            TRY_CAST(CASE 
-                WHEN CHARINDEX('.', j.BancariosRaw) > 0 AND CHARINDEX(',', j.BancariosRaw) = 0 THEN LTRIM(RTRIM(j.BancariosRaw))
-                WHEN CHARINDEX('.', j.BancariosRaw) = 0 AND CHARINDEX(',', j.BancariosRaw) > 0 THEN REPLACE(LTRIM(RTRIM(j.BancariosRaw)), ',', '.')
-                WHEN CHARINDEX('.', j.BancariosRaw) > CHARINDEX(',', j.BancariosRaw) THEN REPLACE(LTRIM(RTRIM(j.BancariosRaw)), ',', '')
-                ELSE REPLACE(REPLACE(LTRIM(RTRIM(j.BancariosRaw)), '.', ''), ',', '.')
-            END AS DECIMAL(12,2)),
-            TRY_CAST(CASE 
-                WHEN CHARINDEX('.', j.LimpiezaRaw) > 0 AND CHARINDEX(',', j.LimpiezaRaw) = 0 THEN LTRIM(RTRIM(j.LimpiezaRaw))
-                WHEN CHARINDEX('.', j.LimpiezaRaw) = 0 AND CHARINDEX(',', j.LimpiezaRaw) > 0 THEN REPLACE(LTRIM(RTRIM(j.LimpiezaRaw)), ',', '.')
-                WHEN CHARINDEX('.', j.LimpiezaRaw) > CHARINDEX(',', j.LimpiezaRaw) THEN REPLACE(LTRIM(RTRIM(j.LimpiezaRaw)), ',', '')
-                ELSE REPLACE(REPLACE(LTRIM(RTRIM(j.LimpiezaRaw)), '.', ''), ',', '.')
-            END AS DECIMAL(12,2)),
-            TRY_CAST(CASE 
-                WHEN CHARINDEX('.', j.AdministracionRaw) > 0 AND CHARINDEX(',', j.AdministracionRaw) = 0 THEN LTRIM(RTRIM(j.AdministracionRaw))
-                WHEN CHARINDEX('.', j.AdministracionRaw) = 0 AND CHARINDEX(',', j.AdministracionRaw) > 0 THEN REPLACE(LTRIM(RTRIM(j.AdministracionRaw)), ',', '.')
-                WHEN CHARINDEX('.', j.AdministracionRaw) > CHARINDEX(',', j.AdministracionRaw) THEN REPLACE(LTRIM(RTRIM(j.AdministracionRaw)), ',', '')
-                ELSE REPLACE(REPLACE(LTRIM(RTRIM(j.AdministracionRaw)), '.', ''), ',', '.')
-            END AS DECIMAL(12,2)),
-            TRY_CAST(CASE 
-                WHEN CHARINDEX('.', j.SegurosRaw) > 0 AND CHARINDEX(',', j.SegurosRaw) = 0 THEN LTRIM(RTRIM(j.SegurosRaw))
-                WHEN CHARINDEX('.', j.SegurosRaw) = 0 AND CHARINDEX(',', j.SegurosRaw) > 0 THEN REPLACE(LTRIM(RTRIM(j.SegurosRaw)), ',', '.')
-                WHEN CHARINDEX('.', j.SegurosRaw) > CHARINDEX(',', j.SegurosRaw) THEN REPLACE(LTRIM(RTRIM(j.SegurosRaw)), ',', '')
-                ELSE REPLACE(REPLACE(LTRIM(RTRIM(j.SegurosRaw)), '.', ''), ',', '.')
-            END AS DECIMAL(12,2)),
-            TRY_CAST(CASE 
-                WHEN CHARINDEX('.', j.GastosGralesRaw) > 0 AND CHARINDEX(',', j.GastosGralesRaw) = 0 THEN LTRIM(RTRIM(j.GastosGralesRaw))
-                WHEN CHARINDEX('.', j.GastosGralesRaw) = 0 AND CHARINDEX(',', j.GastosGralesRaw) > 0 THEN REPLACE(LTRIM(RTRIM(j.GastosGralesRaw)), ',', '.')
-                WHEN CHARINDEX('.', j.GastosGralesRaw) > CHARINDEX(',', j.GastosGralesRaw) THEN REPLACE(LTRIM(RTRIM(j.GastosGralesRaw)), ',', '')
-                ELSE REPLACE(REPLACE(LTRIM(RTRIM(j.GastosGralesRaw)), '.', ''), ',', '.')
-            END AS DECIMAL(12,2)),
-            TRY_CAST(CASE 
-                WHEN CHARINDEX('.', j.ServPubAguaRaw) > 0 AND CHARINDEX(',', j.ServPubAguaRaw) = 0 THEN LTRIM(RTRIM(j.ServPubAguaRaw))
-                WHEN CHARINDEX('.', j.ServPubAguaRaw) = 0 AND CHARINDEX(',', j.ServPubAguaRaw) > 0 THEN REPLACE(LTRIM(RTRIM(j.ServPubAguaRaw)), ',', '.')
-                WHEN CHARINDEX('.', j.ServPubAguaRaw) > CHARINDEX(',', j.ServPubAguaRaw) THEN REPLACE(LTRIM(RTRIM(j.ServPubAguaRaw)), ',', '')
-                ELSE REPLACE(REPLACE(LTRIM(RTRIM(j.ServPubAguaRaw)), '.', ''), ',', '.')
-            END AS DECIMAL(12,2)),
-            TRY_CAST(CASE 
-                WHEN CHARINDEX('.', j.ServPubLuzRaw) > 0 AND CHARINDEX(',', j.ServPubLuzRaw) = 0 THEN LTRIM(RTRIM(j.ServPubLuzRaw))
-                WHEN CHARINDEX('.', j.ServPubLuzRaw) = 0 AND CHARINDEX(',', j.ServPubLuzRaw) > 0 THEN REPLACE(LTRIM(RTRIM(j.ServPubLuzRaw)), ',', '.')
-                WHEN CHARINDEX('.', j.ServPubLuzRaw) > CHARINDEX(',', j.ServPubLuzRaw) THEN REPLACE(LTRIM(RTRIM(j.ServPubLuzRaw)), ',', '')
-                ELSE REPLACE(REPLACE(LTRIM(RTRIM(j.ServPubLuzRaw)), '.', ''), ',', '.')
-            END AS DECIMAL(12,2))
-        FROM OPENJSON(@json) WITH (
-            NameConsorcio      NVARCHAR(100) '$."Nombre del consorcio"',
-            Mes                NVARCHAR(50)  '$.Mes',
-            BancariosRaw       NVARCHAR(50)  '$.BANCARIOS',
-            LimpiezaRaw        NVARCHAR(50)  '$.LIMPIEZA',
-            AdministracionRaw  NVARCHAR(50)  '$.ADMINISTRACION',
-            SegurosRaw         NVARCHAR(50)  '$.SEGUROS',
-            GastosGralesRaw    NVARCHAR(50)  '$."GASTOS GENERALES"',
-            ServPubAguaRaw     NVARCHAR(50)  '$."SERVICIOS PUBLICOS-Agua"',
-            ServPubLuzRaw      NVARCHAR(50)  '$."SERVICIOS PUBLICOS-Luz"'
-        ) AS j
-        JOIN dbo.Consorcio c ON c.nombre = LTRIM(RTRIM(j.NameConsorcio));
+    INSERT INTO #TotalesConsorcio
+        (idConsorcio, periodo,
+         totalBancarios, totalLimpieza, totalAdministracion,
+         totalSeguros, totalGastosGrales, totalAgua, totalLuz)
+    SELECT 
+        c.id AS idConsorcio,
+        DATEFROMPARTS(@Anio,
+            CASE LOWER(LTRIM(RTRIM(j.Mes)))
+                WHEN 'enero' THEN 1 WHEN 'febrero' THEN 2 WHEN 'marzo' THEN 3
+                WHEN 'abril' THEN 4 WHEN 'mayo' THEN 5 WHEN 'junio' THEN 6
+                WHEN 'julio' THEN 7 WHEN 'agosto' THEN 8 WHEN 'septiembre' THEN 9
+                WHEN 'octubre' THEN 10 WHEN 'noviembre' THEN 11 WHEN 'diciembre' THEN 12
+            END, 1) AS periodo,
+        dbo.fn_NormalizarImporte(j.BANCARIOS),
+        dbo.fn_NormalizarImporte(j.LIMPIEZA),
+        dbo.fn_NormalizarImporte(j.ADMINISTRACION),
+        dbo.fn_NormalizarImporte(j.SEGUROS),
+        dbo.fn_NormalizarImporte(j.[GASTOS GENERALES]),
+        dbo.fn_NormalizarImporte(j.[SERVICIOS PUBLICOS-Agua]),
+        dbo.fn_NormalizarImporte(j.[SERVICIOS PUBLICOS-Luz])
+    FROM OPENJSON(@jsonTexto) WITH (
+        [NombreConsorcio]          NVARCHAR(100) '$."Nombre del consorcio"',
+        Mes                        NVARCHAR(50)  '$.Mes',
+        BANCARIOS                  NVARCHAR(50)  '$.BANCARIOS',
+        LIMPIEZA                   NVARCHAR(50)  '$.LIMPIEZA',
+        ADMINISTRACION             NVARCHAR(50)  '$.ADMINISTRACION',
+        SEGUROS                    NVARCHAR(50)  '$.SEGUROS',
+        [GASTOS GENERALES]         NVARCHAR(50)  '$."GASTOS GENERALES"',
+        [SERVICIOS PUBLICOS-Agua]  NVARCHAR(50)  '$."SERVICIOS PUBLICOS-Agua"',
+        [SERVICIOS PUBLICOS-Luz]   NVARCHAR(50)  '$."SERVICIOS PUBLICOS-Luz"'
+    ) AS j
+    JOIN dbo.Consorcio c
+      ON c.nombre = j.NombreConsorcio;
 
+    --------------------------------------------------------------------
+    -- 3) Calcular cuánto paga cada UF (#TotalesUF) según m2_UF + accesorios
+    --------------------------------------------------------------------
+    IF OBJECT_ID('tempdb..#TotalesUF') IS NOT NULL DROP TABLE #TotalesUF;
 
-        -- Expensas por UF
-        IF OBJECT_ID('tempdb..#expUF') IS NOT NULL DROP TABLE #expUF;
-        CREATE TABLE #expUF(
-            idUF       INT           NOT NULL,
-            PeriodDate DATE          NOT NULL,
-            MontoTotal DECIMAL(12,2) NOT NULL
-        );
+    CREATE TABLE #TotalesUF(
+        idUF     INT,
+        periodo  DATE,
+        montoUF  DECIMAL(12,2)
+    );
 
-        INSERT INTO #expUF(idUF, PeriodDate, MontoTotal)
-        SELECT 
-            uf.idUF,
-            cm.PeriodDate,
-              ROUND(COALESCE(cm.BancariosTotal,0)       * uf.coeficiente/100, 2)
-            + ROUND(COALESCE(cm.LimpiezaTotal,0)        * uf.coeficiente/100, 2)
-            + ROUND(COALESCE(cm.AdministracionTotal,0)  * uf.coeficiente/100, 2)
-            + ROUND(COALESCE(cm.SegurosTotal,0)         * uf.coeficiente/100, 2)
-            + ROUND(COALESCE(cm.GastosGralesTotal,0)    * uf.coeficiente/100, 2)
-            + ROUND(COALESCE(cm.ServPubAguaTotal,0)     * uf.coeficiente/100, 2)
-            + ROUND(COALESCE(cm.ServPubLuzTotal,0)      * uf.coeficiente/100, 2)
-        FROM #cm cm
-        JOIN dbo.UnidadFuncional uf ON uf.idConsorcio = cm.consId;
+    ;WITH AreaPorUF AS (
+        SELECT uf.idUF,
+               uf.idConsorcio,
+               uf.m2_UF + COALESCE(SUM(ua.m2_baulera + ua.m2_cochera),0) AS m2TotalUF
+        FROM dbo.UnidadFuncional uf
+        LEFT JOIN dbo.UnidadAccesoria ua
+          ON ua.idUnidadFuncional = uf.idUF
+        GROUP BY uf.idUF, uf.idConsorcio, uf.m2_UF
+    ),
+    AreaTotalConsorcio AS (
+        SELECT idConsorcio,
+               SUM(m2TotalUF) AS m2TotalConsorcio
+        FROM AreaPorUF
+        GROUP BY idConsorcio
+    ),
+    CoeficienteFinal AS (
+        SELECT a.idUF,
+               a.idConsorcio,
+               CASE 
+                   WHEN t.m2TotalConsorcio = 0 THEN 0
+                   ELSE (a.m2TotalUF * 100.0 / t.m2TotalConsorcio)
+               END AS coefPorcentaje
+        FROM AreaPorUF a
+        JOIN AreaTotalConsorcio t
+          ON t.idConsorcio = a.idConsorcio
+    )
+    INSERT INTO #TotalesUF(idUF, periodo, montoUF)
+    SELECT uf.idUF,
+           tc.periodo,
+             ROUND(COALESCE(tc.totalBancarios,0)     * cf.coefPorcentaje/100, 2)
+           + ROUND(COALESCE(tc.totalLimpieza,0)      * cf.coefPorcentaje/100, 2)
+           + ROUND(COALESCE(tc.totalAdministracion,0)* cf.coefPorcentaje/100, 2)
+           + ROUND(COALESCE(tc.totalSeguros,0)       * cf.coefPorcentaje/100, 2)
+           + ROUND(COALESCE(tc.totalGastosGrales,0)  * cf.coefPorcentaje/100, 2)
+           + ROUND(COALESCE(tc.totalAgua,0)          * cf.coefPorcentaje/100, 2)
+           + ROUND(COALESCE(tc.totalLuz,0)           * cf.coefPorcentaje/100, 2)
+    FROM #TotalesConsorcio tc
+    JOIN dbo.UnidadFuncional uf
+      ON uf.idConsorcio = tc.idConsorcio
+    JOIN CoeficienteFinal cf
+      ON cf.idUF = uf.idUF;
 
+    --------------------------------------------------------------------
+    -- 4) Detalle por concepto para cada UF (#DetalleUF)
+    --------------------------------------------------------------------
+    IF OBJECT_ID('tempdb..#DetalleUF') IS NOT NULL DROP TABLE #DetalleUF;
 
-        -- Detalle por concepto (solo importes > 0)
-        IF OBJECT_ID('tempdb..#detUF') IS NOT NULL DROP TABLE #detUF;
-        CREATE TABLE #detUF(
-            idUF       INT          NOT NULL,
-            PeriodDate DATE         NOT NULL,
-            Concepto   NVARCHAR(80) NOT NULL,
-            Importe    DECIMAL(12,2) NOT NULL
-        );
+    CREATE TABLE #DetalleUF(
+        idUF     INT,
+        periodo  DATE,
+        concepto NVARCHAR(80),
+        importe  DECIMAL(12,2)
+    );
 
-        INSERT INTO #detUF(idUF, PeriodDate, Concepto, Importe)
-        SELECT 
-            uf.idUF,
-            cm.PeriodDate,
-            x.Concepto,
-            x.Importe
-        FROM #cm cm
-        JOIN dbo.UnidadFuncional uf ON uf.idConsorcio = cm.consId
-        CROSS APPLY (VALUES
-            (N'BANCARIOS'              , ROUND(COALESCE(cm.BancariosTotal,0)       * uf.coeficiente/100, 2)),
-            (N'LIMPIEZA'               , ROUND(COALESCE(cm.LimpiezaTotal,0)        * uf.coeficiente/100, 2)),
-            (N'ADMINISTRACION'         , ROUND(COALESCE(cm.AdministracionTotal,0)  * uf.coeficiente/100, 2)),
-            (N'SEGUROS'                , ROUND(COALESCE(cm.SegurosTotal,0)         * uf.coeficiente/100, 2)),
-            (N'GASTOS GENERALES'       , ROUND(COALESCE(cm.GastosGralesTotal,0)    * uf.coeficiente/100, 2)),
-            (N'SERVICIOS PUBLICOS-Agua', ROUND(COALESCE(cm.ServPubAguaTotal,0)     * uf.coeficiente/100, 2)),
-            (N'SERVICIOS PUBLICOS-Luz' , ROUND(COALESCE(cm.ServPubLuzTotal,0)      * uf.coeficiente/100, 2))
-        ) AS x(Concepto, Importe)
-        WHERE x.Importe > 0;
+    ;WITH AreaPorUF AS (
+        SELECT uf.idUF,
+               uf.idConsorcio,
+               uf.m2_UF + COALESCE(SUM(ua.m2_baulera + ua.m2_cochera),0) AS m2TotalUF
+        FROM dbo.UnidadFuncional uf
+        LEFT JOIN dbo.UnidadAccesoria ua
+          ON ua.idUnidadFuncional = uf.idUF
+        GROUP BY uf.idUF, uf.idConsorcio, uf.m2_UF
+    ),
+    AreaTotalConsorcio AS (
+        SELECT idConsorcio,
+               SUM(m2TotalUF) AS m2TotalConsorcio
+        FROM AreaPorUF
+        GROUP BY idConsorcio
+    ),
+    CoeficienteFinal AS (
+        SELECT a.idUF,
+               a.idConsorcio,
+               CASE 
+                   WHEN t.m2TotalConsorcio = 0 THEN 0
+                   ELSE (a.m2TotalUF * 100.0 / t.m2TotalConsorcio)
+               END AS coefPorcentaje
+        FROM AreaPorUF a
+        JOIN AreaTotalConsorcio t
+          ON t.idConsorcio = a.idConsorcio
+    )
+    INSERT INTO #DetalleUF(idUF, periodo, concepto, importe)
+    SELECT uf.idUF,
+           tc.periodo,
+           x.Concepto,
+           x.Importe
+    FROM #TotalesConsorcio tc
+    JOIN dbo.UnidadFuncional uf
+      ON uf.idConsorcio = tc.idConsorcio
+    JOIN CoeficienteFinal cf
+      ON cf.idUF = uf.idUF
+    CROSS APPLY (VALUES
+        ('BANCARIOS'              , ROUND(COALESCE(tc.totalBancarios,0)     * cf.coefPorcentaje/100, 2)),
+        ('LIMPIEZA'               , ROUND(COALESCE(tc.totalLimpieza,0)      * cf.coefPorcentaje/100, 2)),
+        ('ADMINISTRACION'         , ROUND(COALESCE(tc.totalAdministracion,0)* cf.coefPorcentaje/100, 2)),
+        ('SEGUROS'                , ROUND(COALESCE(tc.totalSeguros,0)       * cf.coefPorcentaje/100, 2)),
+        ('GASTOS GENERALES'       , ROUND(COALESCE(tc.totalGastosGrales,0)  * cf.coefPorcentaje/100, 2)),
+        ('SERVICIOS PUBLICOS-Agua', ROUND(COALESCE(tc.totalAgua,0)          * cf.coefPorcentaje/100, 2)),
+        ('SERVICIOS PUBLICOS-Luz' , ROUND(COALESCE(tc.totalLuz,0)           * cf.coefPorcentaje/100, 2))
+    ) AS x(Concepto, Importe)
+    WHERE x.Importe > 0;
 
+    --------------------------------------------------------------------
+    -- 5) Insertar Expensas (una por UF/periodo, sin duplicar)
+    --------------------------------------------------------------------
+    DECLARE @NuevasExpensas TABLE(idExpensa INT, idUF INT, periodo DATE);
 
-        --  UPSERT de Expensa (idempotente) + recolectar IDs
-        DECLARE @NewExpensas TABLE(idExpensa INT, idUF INT, Periodo DATE);
+    INSERT INTO dbo.Expensa (idUF, periodo, montoTotal)
+    OUTPUT inserted.id, inserted.idUF, inserted.periodo
+           INTO @NuevasExpensas(idExpensa, idUF, periodo)
+    SELECT t.idUF, t.periodo, t.montoUF
+    FROM #TotalesUF t
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.Expensa e
+        WHERE e.idUF = t.idUF
+          AND e.periodo = t.periodo
+    );
 
-        MERGE dbo.Expensa AS T
-        USING (
-          SELECT idUF, PeriodDate AS periodo, MontoTotal
-          FROM #expUF
-        ) AS S
-        ON  T.idUF = S.idUF AND T.periodo = S.periodo
-        WHEN MATCHED THEN
-          UPDATE SET T.montoTotal = S.MontoTotal
-        WHEN NOT MATCHED BY TARGET THEN
-          INSERT (idUF, periodo, montoTotal)
-          VALUES (S.idUF, S.periodo, S.MontoTotal)
-        OUTPUT inserted.id, S.idUF, S.periodo
-        INTO @NewExpensas(idExpensa, idUF, Periodo);
+    --------------------------------------------------------------------
+    -- 6) Insertar DetalleExpensa con tipo + categoría
+    --    y matchear con PrestadorServicio usando el mapeo de conceptos
+    --------------------------------------------------------------------
+    INSERT INTO dbo.DetalleExpensa
+        (idExpensa, idPrestadorServicio, importe, nroFactura, tipo, categoria, nroCuota)
+    SELECT 
+        ne.idExpensa,
+        ps.id AS idPrestadorServicio,
+        d.importe,
+        NULL AS nroFactura,
+        dbo.fn_MapearConceptoTipoServicio(d.concepto)   AS tipo,
+        dbo.fn_MapearConceptoCategoria(d.concepto)      AS categoria,
+        NULL AS nroCuota
+    FROM @NuevasExpensas ne
+    JOIN #DetalleUF d
+      ON d.idUF    = ne.idUF
+     AND d.periodo = ne.periodo
+    JOIN dbo.UnidadFuncional uf
+      ON uf.idUF = ne.idUF
+    JOIN dbo.PrestadorServicio ps
+      ON ps.idConsorcio  = uf.idConsorcio
+     AND ps.tipoServicio = dbo.fn_MapearConceptoTipoServicio(d.concepto);
 
- 
-        -- Asegurar prestadores por consorcio/concepto
-        IF OBJECT_ID('tempdb..#needPS') IS NOT NULL DROP TABLE #needPS;
-        SELECT DISTINCT uf.idConsorcio, d.Concepto
-        INTO #needPS
-        FROM @NewExpensas ne
-        JOIN dbo.UnidadFuncional uf
-          ON uf.idUF = ne.idUF
-        JOIN #detUF d
-          ON d.idUF = ne.idUF AND d.PeriodDate = ne.Periodo;
-
-        INSERT INTO dbo.PrestadorServicio (idConsorcio, nombre, tipoServicio, cuenta)
-        SELECT n.idConsorcio,
-               n.Concepto + N' (GENÉRICO)',
-               n.Concepto,
-               NULL
-        FROM #needPS n
-        LEFT JOIN dbo.PrestadorServicio ps
-          ON ps.idConsorcio = n.idConsorcio
-         AND UPPER(LTRIM(RTRIM(ps.tipoServicio))) = UPPER(LTRIM(RTRIM(n.Concepto)))
-        WHERE ps.id IS NULL;
-
-
-        -- DetalleExpensa (sin duplicados)
-        -- Borro detalle previo de las expensas afectadas (por si venía de una corrida anterior)
-        DELETE de
-        FROM dbo.DetalleExpensa de
-        JOIN @NewExpensas ne ON ne.idExpensa = de.idExpensa;
-
-        -- Insertamos el detalle con el join normalizado
-        INSERT INTO dbo.DetalleExpensa (idExpensa, idPrestadorServicio, importe,
-                                        nroFactura, tipo, categoria, nroCuota)
-        SELECT 
-            ne.idExpensa,
-            ps.id AS idPrestadorServicio,
-            d.Importe,
-            NULL, NULL, NULL, NULL
-        FROM @NewExpensas ne
-        JOIN #detUF d
-          ON d.idUF = ne.idUF AND d.PeriodDate = ne.Periodo
-        JOIN dbo.UnidadFuncional uf
-          ON uf.idUF = ne.idUF
-        JOIN dbo.PrestadorServicio ps
-          ON ps.idConsorcio = uf.idConsorcio
-         AND UPPER(LTRIM(RTRIM(ps.tipoServicio))) = UPPER(LTRIM(RTRIM(d.Concepto)));
-
-        COMMIT;
-    END TRY
-    BEGIN CATCH
-        IF XACT_STATE() <> 0 ROLLBACK;
-        THROW;
-    END CATCH
-END
+END;
 GO
-
-
 
 
 --#02 sp_CargarPagosDesdeCsv (CSV)
