@@ -20,7 +20,8 @@ IF OBJECT_ID(N'dbo.sp_ImportarInquilinoPropietariosUFCSV', N'P') IS NOT NULL DRO
 GO
 IF OBJECT_ID(N'dbo.sp_Importar_UF_por_consorcio', N'P') IS NOT NULL DROP PROCEDURE dbo.sp_Importar_UF_por_consorcio;
 GO
-
+IF OBJECT_ID(N'dbo.sp_Pagos_PendientesParaAsociar', N'P') IS NOT NULL DROP PROCEDURE dbo.sp_Pagos_PendientesParaAsociar;
+GO
 
 --#01  sp_ImportacionServicios (JSON)
 USE Com3900G02;
@@ -33,9 +34,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    --------------------------------------------------------------------
-    -- 1) Leer el JSON del archivo a una variable
-    --------------------------------------------------------------------
     DECLARE @jsonTexto NVARCHAR(MAX);
     DECLARE @sqlLeerArchivo NVARCHAR(MAX) =
         N'SELECT @salida = CONVERT(NVARCHAR(MAX), BulkColumn)
@@ -45,9 +43,7 @@ BEGIN
                        N'@salida NVARCHAR(MAX) OUTPUT',
                        @salida = @jsonTexto OUTPUT;
 
-    --------------------------------------------------------------------
-    -- 2) Tabla temporal con totales por consorcio y mes (#TotalesConsorcio)
-    --------------------------------------------------------------------
+   
     IF OBJECT_ID('tempdb..#TotalesConsorcio') IS NOT NULL DROP TABLE #TotalesConsorcio;
 
     CREATE TABLE #TotalesConsorcio(
@@ -96,9 +92,7 @@ BEGIN
     JOIN dbo.Consorcio c
       ON c.nombre = j.NombreConsorcio;
 
-    --------------------------------------------------------------------
-    -- 3) Calcular cuánto paga cada UF (#TotalesUF) según m2_UF + accesorios
-    --------------------------------------------------------------------
+   
     IF OBJECT_ID('tempdb..#TotalesUF') IS NOT NULL DROP TABLE #TotalesUF;
 
     CREATE TABLE #TotalesUF(
@@ -149,9 +143,7 @@ BEGIN
     JOIN CoeficienteFinal cf
       ON cf.idUF = uf.idUF;
 
-    --------------------------------------------------------------------
-    -- 4) Detalle por concepto para cada UF (#DetalleUF)
-    --------------------------------------------------------------------
+ 
     IF OBJECT_ID('tempdb..#DetalleUF') IS NOT NULL DROP TABLE #DetalleUF;
 
     CREATE TABLE #DetalleUF(
@@ -208,9 +200,9 @@ BEGIN
     ) AS x(Concepto, Importe)
     WHERE x.Importe > 0;
 
-    --------------------------------------------------------------------
-    -- 5) Insertar Expensas (una por UF/periodo, sin duplicar)
-    --------------------------------------------------------------------
+   
+    -- Insertar Expensas (una por UF/periodo, sin duplicar)
+    
     DECLARE @NuevasExpensas TABLE(idExpensa INT, idUF INT, periodo DATE);
 
     INSERT INTO dbo.Expensa (idUF, periodo, montoTotal)
@@ -225,10 +217,10 @@ BEGIN
           AND e.periodo = t.periodo
     );
 
-    --------------------------------------------------------------------
-    -- 6) Insertar DetalleExpensa con tipo + categoría
+   
+    -- Insertar DetalleExpensa con tipo + categoría
     --    y matchear con PrestadorServicio usando el mapeo de conceptos
-    --------------------------------------------------------------------
+   
     INSERT INTO dbo.DetalleExpensa
         (idExpensa, idPrestadorServicio, importe, nroFactura, tipo, categoria, nroCuota)
     SELECT 
@@ -260,10 +252,10 @@ CREATE OR ALTER PROCEDURE dbo.sp_Pagos_ImportarCSV
 AS
 BEGIN
     SET NOCOUNT ON;
+    SET XACT_ABORT ON;
 
-    IF OBJECT_ID('tempdb..#stg_pagos') IS NOT NULL DROP TABLE #stg_pagos;
-
-    CREATE TABLE #stg_pagos
+    IF OBJECT_ID('tempdb..#stg_pagos') IS NOT NULL DROP TABLE #var_pagos;
+    CREATE TABLE #var_pagos
     (
         IdDePago  VARCHAR(100) NULL,
         FechaTxt  VARCHAR(50)  NULL,
@@ -275,37 +267,58 @@ BEGIN
         BULK INSERT #stg_pagos
         FROM ' + QUOTENAME(@FilePath,'''') + N'
         WITH (
-            FIRSTROW = 2,
+            FIRSTROW        = 2,
             FIELDTERMINATOR = '','',
             ROWTERMINATOR   = ''0x0d0a'',
             DATAFILETYPE    = ''char'',
             TABLOCK
-        );
-    ';
+        );';
     EXEC sys.sp_executesql @sql;
 
+    WITH S AS (
+        SELECT
+            idDePago  = TRY_CONVERT(INT, NULLIF(LTRIM(RTRIM(IdDePago)) , '')),
+            fechaPago = COALESCE(TRY_CONVERT(date, FechaTxt, 103),     -- dd/mm/yyyy
+                                 TRY_CONVERT(date, FechaTxt, 120),     -- yyyy-mm-dd hh:mi:ss
+                                 TRY_CONVERT(date, FechaTxt)),         -- lo que entra
+            cbu_norm  = NULLIF(REPLACE(REPLACE(LTRIM(RTRIM(CbuCvu)),' ',''), CHAR(160), ''), ''),
+            monto     = TRY_CONVERT(DECIMAL(10,2),REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(ValorTxt)),'$',''),' ',''), ',', '.'))
+        FROM #var_pagos
+    )
     INSERT INTO dbo.Pago (fechaPago, cbu, monto, idDePago, nroUnidadFuncional)
     SELECT
-        COALESCE(TRY_CONVERT(date, s.FechaTxt, 103), TRY_CONVERT(date, s.FechaTxt)),
-        REPLACE(s.CbuCvu, ' ', ''),
-        REPLACE(REPLACE(REPLACE(s.ValorTxt, ' ', ''), '$', ''), '.', ''),
-        s.IdDePago,
-        uf.idUF
-    FROM (
-        SELECT s.IdDePago, s.FechaTxt, s.CbuCvu, s.ValorTxt
-        FROM dbo.Pago p
-        RIGHT JOIN #stg_pagos s ON p.idDePago = s.idDePago
-        WHERE p.idDePago IS NULL
-    ) AS s
-    LEFT JOIN dbo.UnidadFuncional uf
-      ON uf.cbu_cvu_actual = REPLACE(s.CbuCvu, ' ', '')
-    WHERE s.FechaTxt IS NOT NULL 
-      AND s.CbuCvu  IS NOT NULL 
-      AND s.IdDePago IS NOT NULL
-       AND uf.idUF IS NOT NULL;
-END;
+        s.fechaPago,
+        s.cbu_norm,
+        s.monto,
+        s.idDePago,
+        uf.idUF         -- si no encuentra UF, queda NULL
+    FROM S s
+    LEFT JOIN dbo.UnidadFuncional uf  -- busca una UF con CBU actual sea igual al CBU del pago
+           ON uf.cbu_cvu_actual = s.cbu_norm
+    WHERE s.idDePago  IS NOT NULL
+      AND s.fechaPago IS NOT NULL
+      AND s.monto     IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM dbo.Pago p WHERE p.idDePago = s.idDePago); --evita duplicados 
+END
 GO
 
+-- SP para reasociar los pagos a una UF 
+
+CREATE OR ALTER PROCEDURE dbo.sp_Pagos_PendientesParaAsociar
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE p
+       SET p.nroUnidadFuncional = uf.idUF  -- setea la UF en caso de que los CBU sean iguales 
+    FROM dbo.Pago p
+    JOIN dbo.UnidadFuncional uf  -- busca UF CBU_actual coincida con el de pago
+         ON uf.cbu_cvu_actual = p.cbu
+    WHERE p.nroUnidadFuncional IS NULL; -- toma pagos pendientes 
+
+    SELECT cambios = @@ROWCOUNT;
+END
+GO
 
 
 -- #03  sp_ImportarConsorcios (XLSX)
