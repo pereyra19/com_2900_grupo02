@@ -1,3 +1,6 @@
+USE Com3900G02;
+GO
+
 CREATE OR ALTER FUNCTION dbo.fn_NormalizarImporte
 (
     @texto NVARCHAR(50)

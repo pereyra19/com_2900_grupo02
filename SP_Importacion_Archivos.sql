@@ -592,97 +592,174 @@ GO
 -- #06 sp_Importar_Inquilino_propietarios_datos_csv (CSV)
 
 CREATE OR ALTER PROCEDURE dbo.SP_ImportarInquilinoPropietariosDatosCSV
-         @ruta NVARCHAR(500)
+  @ruta NVARCHAR(500)
 AS
 BEGIN
-    SET NOCOUNT ON;
+  SET NOCOUNT ON;
+  SET XACT_ABORT ON;
 
+  BEGIN TRY
     BEGIN TRAN;
-    BEGIN TRY
-        IF OBJECT_ID('tempdb..#Persona_raw') IS NOT NULL DROP TABLE #Persona_raw;
 
-        CREATE TABLE #Persona_raw
-        (
-            nombre   VARCHAR(100) NULL,
-            apellido VARCHAR(100) NULL,
-            dni      VARCHAR(20)  NULL,
-            email    VARCHAR(150) NULL,
-            telefono VARCHAR(50)  NULL,
-            cbu_cvu  VARCHAR(40)  NULL,
-            tipotitularidad VARCHAR(11) NULL
-        );
+    ----------------------------------------------------
+    -- 1) Tabla temporal de staging para el CSV
+    ----------------------------------------------------
+    IF OBJECT_ID('tempdb..#raw') IS NOT NULL 
+        DROP TABLE #raw;
 
-        DECLARE @sql NVARCHAR(500) =
-        N'BULK INSERT #Persona_raw
-        FROM' + QUOTENAME(@ruta,'''') + N' 
+    CREATE TABLE #raw(
+      cbu_uf           VARCHAR(200) NULL,
+      nombreConsorcio  VARCHAR(200) NULL,
+      nroUF            VARCHAR(50)  NULL,
+      tipo             VARCHAR(50)  NULL,
+      departamento     VARCHAR(50)  NULL
+    );
+
+    ----------------------------------------------------
+    -- 2) BULK INSERT
+    ----------------------------------------------------
+    DECLARE @sql NVARCHAR(MAX);
+
+    SET @sql = N'
+      BULK INSERT #raw
+      FROM ' + QUOTENAME(@ruta,'''') + N'
+      WITH (
+        DATAFILETYPE    = ''char'',
+        CODEPAGE        = ''65001'',
+        FIELDTERMINATOR = ''|'',      -- separador pipe
+        ROWTERMINATOR   = ''0x0d0a'', -- CRLF
+        FIRSTROW        = 2,
+        TABLOCK
+      );';
+
+    EXEC sys.sp_executesql @sql;
+
+    -- Si no entró ninguna fila, reintento asumiendo solo LF
+    IF NOT EXISTS(SELECT 1 FROM #raw)
+    BEGIN
+      TRUNCATE TABLE #raw;
+
+      SET @sql = N'
+        BULK INSERT #raw
+        FROM ' + QUOTENAME(@ruta,'''') + N'
         WITH (
           DATAFILETYPE    = ''char'',
           CODEPAGE        = ''65001'',
-          FIELDTERMINATOR = '';'',
-          ROWTERMINATOR   = ''0x0d0a'',
+          FIELDTERMINATOR = ''|'',
+          ROWTERMINATOR   = ''0x0a'', -- LF
           FIRSTROW        = 2,
           TABLOCK
         );';
 
-        EXEC sp_executesql @sql;   
+      EXEC sys.sp_executesql @sql;
+    END;
 
-        ;WITH CTE AS (
-          SELECT
-            nombre   = NULLIF(REPLACE(LTRIM(RTRIM(nombre))  , '"',''), ''),
-            apellido = NULLIF(REPLACE(LTRIM(RTRIM(apellido)), '"',''), ''),
-            dni      = TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(dni)),' ',''),'.',''),'-','')),
-            email    = NULLIF(REPLACE(REPLACE(LTRIM(RTRIM(email))   , '"',''), ' ', ''), ''),
-            telefono = NULLIF(REPLACE(REPLACE(LTRIM(RTRIM(telefono)), '"',''), ' ', ''), ''),
-            cbu_cvu  = NULLIF(REPLACE(REPLACE(LTRIM(RTRIM(cbu_cvu)) , '"',''), ' ', ''), ''),
-            tipoTitularidad = CASE UPPER(REPLACE(LTRIM(RTRIM(tipotitularidad)),'"',''))
-                WHEN '1' THEN 'Inquilino'
-                ELSE 'Propietario'
-              END
-          FROM #Persona_raw
-        ),
-        V AS (  -- validacion de constrains
-          SELECT *
-          FROM CTE
-          WHERE dni BETWEEN 10000000 AND 99999999
-            AND nombre   IS NOT NULL
-            AND apellido IS NOT NULL
-            AND (telefono IS NULL OR telefono NOT LIKE '%[^0-9]%')
-            AND (cbu_cvu  IS NULL OR  cbu_cvu  NOT LIKE '%[^0-9]%')
-        ),
-        DUPS AS (      -- DNI DUplicados 
-          SELECT dni, COUNT(*) AS cnt
-          FROM V
-          GROUP BY dni
-          HAVING COUNT(*) > 1
-        ),
-        S AS (         -- filtro dni sin diplucados
-          SELECT v.*
-          FROM V v
-          WHERE NOT EXISTS (SELECT 1 FROM DUPS d WHERE d.dni = v.dni)
-        )
-        MERGE dbo.Persona WITH (HOLDLOCK) AS t  -- HOLDFLOCK es similar a serializable 
-        USING S AS s
-           ON t.dni = s.dni
-        WHEN MATCHED THEN
-            UPDATE SET
-                t.nombre          = s.nombre,
-                t.apellido        = s.apellido,
-                t.email           = s.email,
-                t.telefono        = s.telefono,
-                t.cbu_cvu         = s.cbu_cvu,
-                t.tipoTitularidad = s.tipoTitularidad
-        WHEN NOT MATCHED BY TARGET THEN
-            INSERT (nombre, apellido, dni, email, telefono, cbu_cvu, tipoTitularidad)
-            VALUES (s.nombre, s.apellido, s.dni, s.email, s.telefono, s.cbu_cvu, s.tipoTitularidad);
+    ----------------------------------------------------
+    -- 3) Normalización de datos crudos
+    ----------------------------------------------------
+    ;WITH C AS (
+      SELECT
+        consorcio = NULLIF(REPLACE(LTRIM(RTRIM(nombreConsorcio)),'"',''), ''),
+        nroUF_int = TRY_CONVERT(
+                        INT,
+                        REPLACE(
+                          REPLACE(
+                            REPLACE(
+                              REPLACE(LTRIM(RTRIM(nroUF)),'"',''),
+                            ' ',''),
+                          '.',''),
+                        '-','')
+                    ),
+        departamento = NULLIF(LEFT(REPLACE(LTRIM(RTRIM(departamento)),'"',''), 10), ''),
+        cbu_cvu = NULLIF(
+                    CAST(
+                      REPLACE(
+                        REPLACE(
+                          REPLACE(
+                            REPLACE(
+                              REPLACE(LTRIM(RTRIM(cbu_uf)),'"',''),
+                            ' ',''),
+                          '.',''),
+                        '-',''),
+                      CHAR(160),'') 
+                      AS VARCHAR(30)
+                    ),
+                    ''
+                  )
+      FROM #raw
+    ),
+    V AS (
+      SELECT 
+        consorcio, 
+        nroUF_int, 
+        departamento, 
+        cbu_cvu
+      FROM C
+      WHERE consorcio IS NOT NULL
+        AND nroUF_int IS NOT NULL
+        AND (cbu_cvu IS NULL OR cbu_cvu NOT LIKE '%[^0-9]%')
+    ),
+    D AS (
+      SELECT *,
+             ROW_NUMBER() OVER (
+               PARTITION BY consorcio, nroUF_int 
+               ORDER BY (SELECT NULL)
+             ) AS rn
+      FROM V
+    ),
+    SRC AS (
+      SELECT
+        cns.id      AS idConsorcio,
+        d.nroUF_int AS numeroUnidad,
+        d.departamento,
+        d.cbu_cvu
+      FROM D d
+      JOIN dbo.Consorcio AS cns
+        ON cns.nombre = d.consorcio
+      WHERE d.rn = 1
+    )
 
+    ----------------------------------------------------
+    -- 4) MERGE contra UnidadFuncional
+    --    - Si existe UF: actualizo departamento y CBU
+    --    - Si NO existe: la creo con coeficiente=0 y m2_UF=1
+    --
+    ----------------------------------------------------
+    MERGE dbo.UnidadFuncional AS T
+    USING SRC AS S
+       ON  T.idConsorcio  = S.idConsorcio
+       AND T.numeroUnidad = S.numeroUnidad
+    WHEN MATCHED THEN
+      UPDATE SET
+        T.departamento   = COALESCE(S.departamento, T.departamento),
+        T.cbu_cvu_actual = COALESCE(S.cbu_cvu     , T.cbu_cvu_actual)
+    WHEN NOT MATCHED BY TARGET THEN
+      INSERT (
+          idConsorcio, 
+          numeroUnidad, 
+          piso, 
+          departamento, 
+          coeficiente, 
+          m2_UF, 
+          cbu_cvu_actual
+      )
+      VALUES (
+          S.idConsorcio, 
+          S.numeroUnidad, 
+          NULL,                    -- piso
+          S.departamento, 
+          0.0,                     -- coeficiente provisorio
+          1,                      
+          S.cbu_cvu
+      );
 
     COMMIT;
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK;
-        THROW;
-    END CATCH
-END
+  END TRY
+  BEGIN CATCH
+    IF XACT_STATE() <> 0 ROLLBACK;
+    THROW;
+  END CATCH
+END;
 GO
 
 
