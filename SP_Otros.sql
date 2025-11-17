@@ -1,3 +1,7 @@
+USE Com3900G02;
+GO
+
+
 CREATE OR ALTER PROCEDURE dbo.sp_GenerarFacturasYEstados
     @Anio          INT,
     @Mes           INT,
@@ -189,19 +193,5 @@ BEGIN
         JSON_VALUE(j.value, '$.tipo')                  AS tipo,
         JSON_VALUE(j.value, '$.nombre')                AS nombre
     FROM OPENJSON(@respuesta) AS j;
-END;
-GO
-
-
-CREATE OR ALTER FUNCTION dbo.EsFeriado(@fecha DATE)
-RETURNS BIT
-AS
-BEGIN
-    DECLARE @resultado BIT = 0;
-
-    IF EXISTS (SELECT 1 FROM dbo.Feriados WHERE fecha = @fecha)
-        SET @resultado = 1;
-
-    RETURN @resultado;
 END;
 GO

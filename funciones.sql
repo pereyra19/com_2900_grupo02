@@ -1,6 +1,8 @@
 USE Com3900G02;
 GO
 
+
+--Compatibilidad para cuando vienen importes xx.xxx,xx o xx,xxx.xx
 CREATE OR ALTER FUNCTION dbo.fn_NormalizarImporte
 (
     @texto NVARCHAR(50)
@@ -12,7 +14,6 @@ BEGIN
     DECLARE @len INT, @posUltimoPunto INT, @posUltimaComa INT;
     DECLARE @sepDecimal NCHAR(1);
 
-    -- saco espacios
     SET @limpio = LTRIM(RTRIM(@texto));
     IF @limpio IS NULL OR @limpio = '' RETURN NULL;
 
@@ -20,7 +21,6 @@ BEGIN
 
     SET @len = LEN(@limpio);
 
-    -- posición del último punto y de la última coma
     SET @posUltimoPunto  = CASE 
                              WHEN CHARINDEX('.', @limpio) = 0 THEN 0
                              ELSE @len - CHARINDEX('.', REVERSE(@limpio)) + 1
@@ -65,7 +65,7 @@ BEGIN
 END;
 GO
 
-
+--Para mapear los datos que vienen en el archivo de prestadores de servicios con el de servicios.json
 CREATE OR ALTER FUNCTION dbo.fn_MapearConceptoTipoServicio
 (
     @concepto NVARCHAR(80)
@@ -91,6 +91,7 @@ BEGIN
 END;
 GO
 
+--Para definir que del archivo servicios.json, es ordinario y que es extraordinario
 CREATE OR ALTER FUNCTION dbo.fn_MapearConceptoCategoria
 (
     @concepto NVARCHAR(80)
@@ -117,7 +118,7 @@ BEGIN
 END;
 GO
 
-
+--Determina si una fecha es un feriado
 CREATE OR ALTER FUNCTION dbo.EsFeriado(@fecha DATE)
 RETURNS BIT
 AS

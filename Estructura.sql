@@ -34,11 +34,11 @@ GO
 
 CREATE TABLE dbo.persona (
     id        INT IDENTITY(1,1) NOT NULL,
-    nombre    VARCHAR(100)      NOT NULL,
-    apellido  VARCHAR(100)      NOT NULL,
-    dni       INT         NOT NULL CHECK (dni BETWEEN 10000000 AND 99999999),
-    email     VARCHAR(100)      NULL CHECK (email LIKE '_%@_%._%' AND email NOT LIKE '% %'),
-    telefono  VARCHAR(20)       NULL CHECK (telefono NOT LIKE '%[^0-9]%'),
+    nombre    VARCHAR(100),
+    apellido  VARCHAR(100),
+    dni       INT,
+    email     VARCHAR(100),
+    telefono  VARCHAR(20),
     cbu_cvu   VARCHAR(30)       NULL CHECK (cbu_cvu NOT LIKE '%[^0-9]%'),
     tipoTitularidad varchar(11),
     CONSTRAINT PK_Persona PRIMARY KEY (id),
@@ -118,15 +118,6 @@ CREATE TABLE dbo.Expensa (
 );
 GO
 
-CREATE TABLE dbo.PagoExpensa (
-  idPago    INT NOT NULL,
-  idExpensa INT NOT NULL,
-  CONSTRAINT PK_PagoExpensa PRIMARY KEY (idPago, idExpensa),
-  CONSTRAINT FK_PagoExpensa_Pago    FOREIGN KEY (idPago)    REFERENCES dbo.Pago(id),
-  CONSTRAINT FK_PagoExpensa_Expensa FOREIGN KEY (idExpensa) REFERENCES dbo.Expensa(id)
-);
-
-
 CREATE TABLE dbo.DetalleExpensa (
     id                  INT IDENTITY(1,1) NOT NULL,
     idExpensa           INT             NOT NULL,
@@ -135,7 +126,6 @@ CREATE TABLE dbo.DetalleExpensa (
     nroFactura          VARCHAR(50)    NULL,
     tipo                VARCHAR(50)    NULL,
     categoria           VARCHAR(50)    NULL,
-    nroCuota            INT             NULL CHECK (nroCuota > 0),
     CONSTRAINT PK_DetalleExpensa    PRIMARY KEY (id),
     CONSTRAINT FK_DetalleExpensa_Expensa    FOREIGN KEY (idExpensa)    REFERENCES dbo.Expensa (id),
     CONSTRAINT FK_DetalleExpensa_PrestadorServicio  FOREIGN KEY (idPrestadorServicio)    REFERENCES dbo.PrestadorServicio (id)
@@ -160,7 +150,7 @@ GO
 CREATE TABLE dbo.EstadoFinanciero (
     id             INT IDENTITY(1,1) NOT NULL,
     idExpensa      INT             NOT NULL,
-    saldoAnterior  DECIMAL(10,2)   DEFAULT 0,
+    saldoAnterior  DECIMAL(10,2)   DEFAULT 0, 
     saldoNuevo     DECIMAL(10,2)   DEFAULT 0,
     saldoDeudor    DECIMAL(10,2)   DEFAULT 0,
     saldoAdelantado DECIMAL(10,2)  DEFAULT 0,
