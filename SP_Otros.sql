@@ -5,14 +5,52 @@ GO
 CREATE OR ALTER PROCEDURE dbo.sp_GenerarFacturasYEstados
     @Anio          INT,
     @Mes           INT,
-    @FechaEmision  DATE   -- fecha base para emisión y envío
+    @FechaEmision  DATE 
 AS
 BEGIN
     SET NOCOUNT ON;
 
+    ------------------------------------------------------------
+    -- 1) Determinar periodo
+    ------------------------------------------------------------
     DECLARE @FechaInicioPeriodo DATE = DATEFROMPARTS(@Anio, @Mes, 1);
     DECLARE @FechaFinPeriodo    DATE = EOMONTH(@FechaInicioPeriodo);
 
+    ------------------------------------------------------------
+    -- 2) Ajustar fecha de emision si cae en feriado
+    ------------------------------------------------------------
+    DECLARE @FechaEmisionAjustada DATE;
+
+    ;WITH Fechas AS (
+        SELECT fechaPosible
+        FROM (VALUES
+             (@FechaEmision),
+             (DATEADD(DAY, 1, @FechaEmision)),
+             (DATEADD(DAY, 2, @FechaEmision)),
+             (DATEADD(DAY, 3, @FechaEmision)),
+             (DATEADD(DAY, 4, @FechaEmision)),
+             (DATEADD(DAY, 5, @FechaEmision)),
+             (DATEADD(DAY, 6, @FechaEmision)),
+             (DATEADD(DAY, 7, @FechaEmision)),
+             (DATEADD(DAY, 8, @FechaEmision)),
+             (DATEADD(DAY, 9, @FechaEmision)),
+             (DATEADD(DAY,10, @FechaEmision))
+        ) AS v(fechaPosible)
+    )
+    SELECT @FechaEmisionAjustada = MIN(f.fechaPosible)
+    FROM Fechas f
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.Feriados fer
+        WHERE fer.fecha = f.fechaPosible
+    );
+
+    IF @FechaEmisionAjustada IS NULL
+        SET @FechaEmisionAjustada = @FechaEmision;
+
+    ------------------------------------------------------------
+    -- 3) Generar FacturaExpensa del periodo
+    ------------------------------------------------------------
     INSERT INTO dbo.FacturaExpensa (
         idExpensa,
         fechaEmision,
@@ -24,8 +62,8 @@ BEGIN
     )
     SELECT 
         e.id                                         AS idExpensa,
-        @FechaEmision                                AS fechaEmision,
-        DATEADD(DAY, 10, @FechaEmision)             AS fechaVencimiento,  -- ej: +10 días
+        @FechaEmisionAjustada                        AS fechaEmision,
+        DATEADD(DAY, 10, @FechaEmisionAjustada)      AS fechaVencimiento,  -- ej: +10 días
         1                                            AS nroVencimiento,
         0                                            AS interesPorMora,
         SUM(CASE WHEN de.categoria = 'EXTRAORDINARIO' 
@@ -48,6 +86,9 @@ BEGIN
           )
     GROUP BY e.id;
 
+    ------------------------------------------------------------
+    -- 4) Temp con expensas del periodo + totales de factura
+    ------------------------------------------------------------
     IF OBJECT_ID('tempdb..#ExpensasPeriodo') IS NOT NULL
         DROP TABLE #ExpensasPeriodo;
 
@@ -63,6 +104,9 @@ BEGIN
     WHERE e.periodo >= @FechaInicioPeriodo
       AND e.periodo <= @FechaFinPeriodo;
 
+    ------------------------------------------------------------
+    -- 5) Calculo de estado funanciero
+    ------------------------------------------------------------
     ;WITH ExpensasConSaldoAnterior AS (
         SELECT
             ep.*,
@@ -124,32 +168,40 @@ BEGIN
         WHERE ef.idExpensa = c.idExpensa
     );
 
+    ------------------------------------------------------------
+    -- 6) Actualizar fechaEnvio de las expensas
+    ------------------------------------------------------------
     UPDATE e
     SET e.fechaEnvio = x.fechaEnvio
     FROM dbo.Expensa e
     JOIN #ExpensasPeriodo ep
       ON ep.idExpensa = e.id
     CROSS APPLY (
-        SELECT MIN(fechaPosible) AS fechaEnvio
+        SELECT MIN(fechas.fechaPosible) AS fechaEnvio
         FROM (
-             VALUES ( @FechaEmision ),
-                    ( DATEADD(DAY, 1, @FechaEmision) ),
-                    ( DATEADD(DAY, 2, @FechaEmision) ),
-                    ( DATEADD(DAY, 3, @FechaEmision) ),
-                    ( DATEADD(DAY, 4, @FechaEmision) ),
-                    ( DATEADD(DAY, 5, @FechaEmision) ),
-                    ( DATEADD(DAY, 6, @FechaEmision) ),
-                    ( DATEADD(DAY, 7, @FechaEmision) ),
-                    ( DATEADD(DAY, 8, @FechaEmision) ),
-                    ( DATEADD(DAY, 9, @FechaEmision) ),
-                    ( DATEADD(DAY,10, @FechaEmision) )
+             VALUES ( @FechaEmisionAjustada ),
+                    ( DATEADD(DAY, 1, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 2, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 3, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 4, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 5, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 6, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 7, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 8, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY, 9, @FechaEmisionAjustada) ),
+                    ( DATEADD(DAY,10, @FechaEmisionAjustada) )
         ) AS fechas(fechaPosible)
-        WHERE dbo.esFeriado(fechaPosible) = 0
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM dbo.Feriados f
+            WHERE f.fecha = fechas.fechaPosible
+        )
     ) x;
 
     DROP TABLE #ExpensasPeriodo;
 END;
 GO
+
 
 
 CREATE OR ALTER PROCEDURE dbo.CargarFeriados

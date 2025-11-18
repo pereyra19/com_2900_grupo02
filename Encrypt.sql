@@ -11,7 +11,7 @@ IF NOT EXISTS (
 )
 BEGIN
     PRINT 'Creando MASTER KEY de la base...';
-    CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'Password_Fuerte_2025!';
+    CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'CompilaEnMiMaquina2025!';
 END
 ELSE
 BEGIN
@@ -19,7 +19,7 @@ BEGIN
 END
 GO
 
-OPEN MASTER KEY DECRYPTION BY PASSWORD = 'Password_Fuerte_2025!';
+OPEN MASTER KEY DECRYPTION BY PASSWORD = 'CompilaEnMiMaquina2025!';
 GO
 
 -------------------------------------------------------------
