@@ -1,4 +1,4 @@
-﻿﻿USE master;
+﻿USE master;
 GO
 
 IF DB_ID(N'Com3900G02') IS NOT NULL

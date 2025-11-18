@@ -260,14 +260,17 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    OPEN SYMMETRIC KEY Key_DatosSensibles
+    DECRYPTION BY CERTIFICATE Cert_DatosSensibles;
+
     WITH mapUF AS (
         -- Vinculación Persona y UF por CBU
         SELECT per.id AS idPersona,
-            per.nombre,
-            per.apellido,
+            CONVERT(NVARCHAR(100), DecryptByKey(per.nombre_encrypted))   AS nombre,
+            CONVERT(NVARCHAR(100), DecryptByKey(per.apellido_encrypted)) AS apellido,
+            CONVERT(NVARCHAR(100), DecryptByKey(per.email_encrypted))    AS email,
+            CONVERT(NVARCHAR(20),  DecryptByKey(per.telefono_encrypted)) AS telefono,
             per.dni,
-            per.email,
-            per.telefono,
             uf.idUF,
             uf.idConsorcio
         FROM dbo.Persona per
@@ -305,6 +308,8 @@ BEGIN
     FROM base
     WHERE deuda > 0
     ORDER BY deuda DESC, apellido, nombre;
+
+    CLOSE SYMMETRIC KEY Key_DatosSensibles;
 END
 GO
 
