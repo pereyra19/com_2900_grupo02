@@ -92,3 +92,10 @@ IF OBJECT_ID('dbo.sp_Importar_UF_por_consorcio', 'P') IS NOT NULL
 IF OBJECT_ID('dbo.sp_ImportarInquilinoPropietariosUFCSV', 'P') IS NOT NULL
     GRANT EXECUTE ON dbo.sp_ImportarInquilinoPropietariosUFCSV TO rol_Admin_General, rol_Admin_Operativo;
 GO
+
+
+--Permisos sobre la key para que ejecute los reportes
+GRANT CONTROL ON CERTIFICATE::Cert_DatosSensibles TO log_Admin_General;
+GRANT VIEW DEFINITION ON SYMMETRIC KEY::Key_DatosSensibles TO log_Admin_General;
+GRANT REFERENCES ON SYMMETRIC KEY::Key_DatosSensibles TO log_Admin_General;
+GO

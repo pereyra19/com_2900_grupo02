@@ -67,10 +67,10 @@ EXEC dbo.sp_Pagos_ImportarCSV
   @FilePath = N'C:\Users\Spooky\Documents\consorcios\pagos_consorcios.csv';
 SELECT COUNT(*) AS pagos FROM dbo.Pago;
 GO
-
 --------------------------------------------API------------------------------------------------------------------
 
 --Se cargan los feriados de cada año en una tabla Feriados
+DELETE From Feriados;
 
 EXEC dbo.CargarFeriados 2025;
 SELECT * From Feriados;
@@ -152,6 +152,11 @@ GO
 --  se ejecuta como "Administrador General"
 
 EXECUTE AS LOGIN = 'log_Admin_General';
+
+    OPEN SYMMETRIC KEY Key_DatosSensibles
+    DECRYPTION BY CERTIFICATE Cert_DatosSensibles;
+GO
+    
     -- #01 – Flujo de caja semanal
     EXEC dbo.rpt_R1_FlujoCajaSemanal @FechaDesde  = '2025-01-01', @FechaHasta  = '2025-12-31',@IdConsorcio = NULL;
     GO
@@ -177,6 +182,9 @@ EXECUTE AS LOGIN = 'log_Admin_General';
     GO
 REVERT;
 GO
+
+
+----
 
 --Se ejecuta como Administrativo Bancario
 EXECUTE AS LOGIN = 'log_Admin_Bancario';
