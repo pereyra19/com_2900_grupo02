@@ -244,8 +244,6 @@ END;
 GO
 
 
---#02 sp_CargarPagosDesdeCsv (CSV)
-
 CREATE OR ALTER PROCEDURE dbo.sp_Pagos_ImportarCSV
     @FilePath NVARCHAR(500)
 AS
@@ -262,7 +260,18 @@ BEGIN
         ValorTxt  VARCHAR(100) NULL
     );
 
- 
+    DECLARE @sql NVARCHAR(MAX) = N'
+        BULK INSERT #var_pagos
+        FROM ' + QUOTENAME(@FilePath,'''') + N'
+        WITH (
+            FIRSTROW        = 2,
+            FIELDTERMINATOR = '','',
+            ROWTERMINATOR   = ''0x0d0a'',
+            DATAFILETYPE    = ''char'',
+            TABLOCK
+        );';
+    EXEC sys.sp_executesql @sql;
+
     WITH S AS (
         SELECT
             idDePago  = TRY_CONVERT(INT, NULLIF(LTRIM(RTRIM(IdDePago)) , '')),
@@ -314,6 +323,7 @@ BEGIN
     WHERE p.nroUnidadFuncional IS NULL;  -- pagos no asociados
 END
 GO
+
 
 -- #03  sp_ImportarConsorcios (XLSX)
 
